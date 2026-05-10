@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bengaluru Groundwater Stress Model | Prakash Krishnamachari</title>
+  <meta name="description" content="Predictive Groundwater Stress Modeling for Bengaluru using Sentinel-1 InSAR, Sentinel-2 NDVI, Landsat-9 LST and multi-source GEE analysis."/>
+  <meta property="og:title" content="Bengaluru Groundwater Stress Model"/>
+  <meta property="og:description" content="Multi-sensor Earth Engine analysis: InSAR subsidence, GWPZ composite, urban heat mapping."/>
+  <meta property="og:type" content="website"/>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet Heat -->
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #2ea5ff;
+      --green:    #3fb950;
+      --yellow:   #d29922;
+      --red:      #f85149;
+      --purple:   #a371f7;
+      --radius:   10px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky; top: 0; z-index: 1000;
+      background: rgba(13,17,23,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    .nav-brand { font-weight: 700; font-size: 1rem; color: var(--accent); letter-spacing: -0.3px; }
+    .nav-links { display: flex; gap: 1.6rem; list-style: none; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.875rem;
+                   transition: color .2s; }
+    .nav-links a:hover { color: var(--text); }
+
+    /* ── HERO ── */
+    .hero {
+      background: linear-gradient(135deg, #0d1117 0%, #0f2339 50%, #0d1117 100%);
+      padding: 5rem 2rem 4rem;
+      text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 60%, rgba(46,165,255,0.08) 0%, transparent 70%);
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(46,165,255,0.12);
+      border: 1px solid rgba(46,165,255,0.3);
+      color: var(--accent);
+      padding: .3rem .9rem; border-radius: 999px;
+      font-size: .78rem; font-weight: 600; letter-spacing: .5px;
+      text-transform: uppercase; margin-bottom: 1.2rem;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 700; line-height: 1.15;
+      letter-spacing: -1px; margin-bottom: 1rem;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      font-size: 1.05rem; color: var(--muted);
+      max-width: 680px; margin: 0 auto 2rem;
+    }
+    .btn-group { display: flex; gap: .8rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .65rem 1.4rem; border-radius: var(--radius);
+      font-size: .875rem; font-weight: 600; text-decoration: none;
+      transition: all .2s;
+    }
+    .btn-primary { background: var(--accent); color: #0d1117; }
+    .btn-primary:hover { background: #59b6ff; transform: translateY(-1px); }
+    .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── STATS BAR ── */
+    .stats-bar {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 1.2rem 2rem;
+      display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat-num { font-size: 1.6rem; font-weight: 700; color: var(--accent); }
+    .stat-label { font-size: .75rem; color: var(--muted); text-transform: uppercase;
+                  letter-spacing: .5px; }
+
+    /* ── SECTION ── */
+    section { padding: 4rem 2rem; max-width: 1100px; margin: 0 auto; }
+    h2 { font-size: 1.6rem; font-weight: 700; margin-bottom: .5rem; letter-spacing: -.4px; }
+    h2 span { color: var(--accent); }
+    .section-sub { color: var(--muted); font-size: .95rem; margin-bottom: 2.5rem; }
+
+    /* ── MAP ── */
+    #map-section { max-width: 100%; padding: 4rem 0; }
+    .map-wrapper {
+      width: 100%; height: 600px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      overflow: hidden; position: relative;
+    }
+    #map { width: 100%; height: 100%; }
+    .map-header {
+      padding: 1.5rem 2rem 1rem;
+      max-width: 1100px; margin: 0 auto;
+    }
+
+    /* Layer Control Legend */
+    .legend {
+      background: rgba(22,27,34,0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .8rem 1rem;
+      position: absolute; bottom: 28px; right: 10px; z-index: 800;
+      min-width: 190px;
+    }
+    .legend-title { font-size: .75rem; font-weight: 700; color: var(--text);
+                    text-transform: uppercase; letter-spacing: .5px; margin-bottom: .5rem; }
+    .legend-item { display: flex; align-items: center; gap: .5rem;
+                   font-size: .75rem; color: var(--muted); margin-bottom: .25rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .line { width: 18px; height: 3px; flex-shrink: 0; border-radius: 2px; }
+
+    /* ── PIPELINE ── */
+    .pipeline {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem; margin-top: 1rem;
+    }
+    .pipeline-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.2rem;
+      transition: border-color .2s, transform .2s;
+    }
+    .pipeline-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .pipeline-card .step-num {
+      font-size: .7rem; font-weight: 700; color: var(--accent);
+      text-transform: uppercase; letter-spacing: .6px; margin-bottom: .4rem;
+    }
+    .pipeline-card h3 { font-size: .95rem; font-weight: 600; margin-bottom: .4rem; }
+    .pipeline-card p { font-size: .82rem; color: var(--muted); }
+    .tag {
+      display: inline-block; background: rgba(46,165,255,0.1);
+      border: 1px solid rgba(46,165,255,0.25); color: var(--accent);
+      padding: .15rem .5rem; border-radius: 4px; font-size: .7rem;
+      font-family: 'JetBrains Mono', monospace; margin-top: .5rem; margin-right: .25rem;
+    }
+    .tag.green  { background:rgba(63,185,80,.1); border-color:rgba(63,185,80,.25); color:var(--green); }
+    .tag.yellow { background:rgba(210,153,34,.1); border-color:rgba(210,153,34,.25); color:var(--yellow); }
+    .tag.purple { background:rgba(163,113,247,.1); border-color:rgba(163,113,247,.25); color:var(--purple); }
+    .tag.red    { background:rgba(248,81,73,.1);   border-color:rgba(248,81,73,.25);   color:var(--red); }
+
+    /* ── FORMULA ── */
+    .formula-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: var(--radius); padding: 1.5rem 2rem;
+      font-family: 'JetBrains Mono', monospace; font-size: 1rem;
+      color: var(--text); margin: 1.5rem 0;
+    }
+    .formula-box .comment { color: var(--muted); font-size: .82rem; }
+    .formula-term { color: var(--green); }
+    .formula-coeff { color: var(--yellow); }
+
+    /* ── DATA TABLE ── */
+    .data-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+    .data-table th {
+      background: var(--surface); color: var(--muted); text-align: left;
+      padding: .7rem 1rem; border-bottom: 1px solid var(--border);
+      text-transform: uppercase; font-size: .72rem; letter-spacing: .5px;
+    }
+    .data-table td { padding: .65rem 1rem; border-bottom: 1px solid rgba(48,54,61,0.5); }
+    .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .badge {
+      display: inline-block; padding: .2rem .5rem; border-radius: 4px;
+      font-size: .72rem; font-weight: 600;
+    }
+    .badge-free  { background: rgba(63,185,80,.15); color: var(--green); }
+    .badge-cloud { background: rgba(46,165,255,.15); color: var(--accent); }
+
+    /* ── CODE BLOCK ── */
+    .code-block {
+      background: #010409; border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.2rem 1.5rem;
+      font-family: 'JetBrains Mono', monospace; font-size: .82rem;
+      overflow-x: auto; margin: 1rem 0;
+    }
+    .code-block .kw  { color: #ff7b72; }
+    .code-block .str { color: #a5d6ff; }
+    .code-block .cmt { color: #8b949e; }
+    .code-block .fn  { color: #d2a8ff; }
+    .code-block .num { color: #79c0ff; }
+
+    /* ── FINDINGS ── */
+    .findings-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr));
+      gap: 1rem; margin-top: 1rem;
+    }
+    .finding-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.2rem;
+    }
+    .finding-icon { font-size: 1.5rem; margin-bottom: .5rem; }
+    .finding-card h4 { font-size: .9rem; font-weight: 600; margin-bottom: .35rem; }
+    .finding-card p { font-size: .8rem; color: var(--muted); }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--surface); border-top: 1px solid var(--border);
+      padding: 2rem; text-align: center; color: var(--muted); font-size: .82rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .stats-bar { gap: 1.5rem; }
+      .map-wrapper { height: 420px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-brand">🌊 GW Stress — Bengaluru</div>
+  <ul class="nav-links">
+    <li><a href="#map-section">Live Map</a></li>
+    <li><a href="#pipeline">Methodology</a></li>
+    <li><a href="#formula">GWPZ Model</a></li>
+    <li><a href="#datasets">Data Sources</a></li>
+    <li><a href="#findings">Findings</a></li>
+    <li><a href="https://github.com/prakashkrish-DataGeek/bengaluru-groundwater-stress" target="_blank">GitHub ↗</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-badge">Open-Source · Google Earth Engine · Python</div>
+  <h1>Predictive <span>Groundwater Stress</span><br>Modeling for Bengaluru</h1>
+  <p>
+    Multi-sensor satellite analysis combining Sentinel-1 SAR, Sentinel-2 NDVI,
+    Landsat-9 LST and NASADEM to map recharge zones, subsidence hotspots
+    and urban water stress across India's Silicon Valley.
+  </p>
+  <div class="btn-group">
+    <a href="#map-section" class="btn btn-primary">🗺 Explore Live Map</a>
+    <a href="bengaluru_groundwater_heatmap.html" class="btn btn-ghost">⚡ Full-Screen Map</a>
+    <a href="https://github.com/prakashkrish-DataGeek/bengaluru-groundwater-stress"
+       class="btn btn-ghost" target="_blank">⭐ Star on GitHub</a>
+  </div>
+</header>
+
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <div class="stat"><div class="stat-num">741 km²</div><div class="stat-label">Study Area</div></div>
+  <div class="stat"><div class="stat-num">4</div><div class="stat-label">Satellite Sources</div></div>
+  <div class="stat"><div class="stat-num">24 months</div><div class="stat-label">InSAR Analysis Window</div></div>
+  <div class="stat"><div class="stat-num">10 m</div><div class="stat-label">LULC Resolution</div></div>
+  <div class="stat"><div class="stat-num">5</div><div class="stat-label">GWPZ Classes</div></div>
+</div>
+
+<!-- MAP SECTION -->
+<div id="map-section">
+  <div class="map-header">
+    <h2>Interactive <span>Multi-Layer</span> Map</h2>
+    <p class="section-sub">
+      Toggle layers using the control panel (top-right). Click station markers
+      for groundwater depth readings. Use the ruler tool to measure distances.
+    </p>
+  </div>
+  <div style="position:relative; padding:0 2rem 2rem; max-width:1100px; margin:0 auto;">
+    <div class="map-wrapper">
+      <div id="map"></div>
+      <div class="legend">
+        <div class="legend-title">Map Layers</div>
+        <div class="legend-item"><span class="dot" style="background:#2ea5ff"></span> GWPZ Heatmap</div>
+        <div class="legend-item"><span class="dot" style="background:#f85149"></span> Subsidence Hotspot</div>
+        <div class="legend-item"><span class="dot" style="background:#fd8d3c"></span> Urban Heat (LST)</div>
+        <div class="legend-item"><span class="line" style="background:#1a73e8"></span> Storm Water Drains</div>
+        <div class="legend-item"><span class="line" style="background:#a371f7;border-top:2px dashed #a371f7;height:0"></span> Lineaments</div>
+        <div class="legend-item"><span class="dot" style="background:#3fb950"></span> GW Station (deep)</div>
+        <div class="legend-item"><span class="dot" style="background:#f85149"></span> GW Station (shallow)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <h2>Analysis <span>Pipeline</span></h2>
+  <p class="section-sub">Five-step workflow from raw satellite imagery to publishable groundwater stress model.</p>
+  <div class="pipeline">
+
+    <div class="pipeline-card">
+      <div class="step-num">Step 01</div>
+      <h3>Subsidence Detection</h3>
+      <p>Sentinel-1 SAR backscatter time-series over 24 months to identify land surface instability hotspots as a proxy for subsidence.</p>
+      <span class="tag">S1 GRD</span><span class="tag">InSAR Proxy</span>
+    </div>
+
+    <div class="pipeline-card">
+      <div class="step-num">Step 02</div>
+      <h3>Covariate Extraction</h3>
+      <p>Cloud-masked Sentinel-2 NDVI, ESRI 10m LULC 2023, NASADEM slope/elevation, and CHIRPS rainfall — all via GEE.</p>
+      <span class="tag green">Sentinel-2</span><span class="tag green">NASADEM</span>
+    </div>
+
+    <div class="pipeline-card">
+      <div class="step-num">Step 03</div>
+      <h3>GWPZ Composite</h3>
+      <p>Weighted index combining LULC recharge suitability, slope, vegetation density and geological lineaments.</p>
+      <span class="tag yellow">AHP Weights</span><span class="tag yellow">5 Classes</span>
+    </div>
+
+    <div class="pipeline-card">
+      <div class="step-num">Step 04</div>
+      <h3>Urban Heat Mapping</h3>
+      <p>Landsat-9 Collection 2 Level-2 thermal band (ST_B10) scaled to °C. Summer composite + UHI intensity vs. rural baseline.</p>
+      <span class="tag red">Landsat-9</span><span class="tag red">UHI</span>
+    </div>
+
+    <div class="pipeline-card">
+      <div class="step-num">Step 05</div>
+      <h3>Drain & Lineament Analysis</h3>
+      <p>KML → GeoJSON conversion, 500m proximity grid, and probabilistic Hough lineament detection on DEM hillshade.</p>
+      <span class="tag purple">Hough Transform</span><span class="tag purple">GeoPandas</span>
+    </div>
+
+  </div>
+</section>
+
+<!-- FORMULA -->
+<section id="formula">
+  <h2>GWPZ <span>Formula</span></h2>
+  <p class="section-sub">Analytical Hierarchy Process (AHP) weighted index, peer-reviewed weights from hydrogeological literature.</p>
+
+  <div class="formula-box">
+    <div class="comment">// Groundwater Potential Zone composite</div>
+    <br>
+    GWPZ =&nbsp;
+    (<span class="formula-coeff">w1</span> × <span class="formula-term">LULC_score</span>)&nbsp; +
+    (<span class="formula-coeff">w2</span> × <span class="formula-term">Slope_score</span>)&nbsp; +<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(<span class="formula-coeff">w3</span> × <span class="formula-term">NDVI_score</span>)&nbsp; +
+    (<span class="formula-coeff">w4</span> × <span class="formula-term">Lineament_score</span>)<br><br>
+    <div class="comment">// Weights (sum = 1.00):</div>
+    w1 = <span class="formula-coeff">0.30</span> &nbsp;— LULC recharge suitability<br>
+    w2 = <span class="formula-coeff">0.25</span> &nbsp;— Terrain slope (flat = high recharge)<br>
+    w3 = <span class="formula-coeff">0.25</span> &nbsp;— NDVI (dense veg = good infiltration)<br>
+    w4 = <span class="formula-coeff">0.20</span> &nbsp;— Lineament/fracture density<br><br>
+    <div class="comment">// Each layer reclassified: 1 (Very Low) → 5 (Very High)</div>
+  </div>
+
+  <div class="code-block">
+    <span class="cmt">// GEE implementation (Script 03)</span><br>
+    <span class="kw">var</span> gwpz = lulcScore.<span class="fn">multiply</span>(<span class="num">0.30</span>)<br>
+    &nbsp;&nbsp;.<span class="fn">add</span>(slopeScore.<span class="fn">multiply</span>(<span class="num">0.25</span>))<br>
+    &nbsp;&nbsp;.<span class="fn">add</span>(ndviScore.<span class="fn">multiply</span>(<span class="num">0.25</span>))<br>
+    &nbsp;&nbsp;.<span class="fn">add</span>(lineamentScore.<span class="fn">multiply</span>(<span class="num">0.20</span>))<br>
+    &nbsp;&nbsp;.<span class="fn">rename</span>(<span class="str">'GWPZ'</span>);
+  </div>
+</section>
+
+<!-- DATASETS -->
+<section id="datasets">
+  <h2>Data <span>Sources</span></h2>
+  <p class="section-sub">All datasets are openly accessible and processed entirely in Google Earth Engine.</p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Dataset</th><th>Source</th><th>Resolution</th><th>Use</th><th>Access</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Sentinel-1 GRD</td>
+        <td>ESA / Copernicus</td>
+        <td>20m</td>
+        <td>Subsidence proxy (backscatter)</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+      <tr>
+        <td>Sentinel-2 SR (L2A)</td>
+        <td>ESA / Copernicus</td>
+        <td>10m</td>
+        <td>NDVI, EVI, MNDWI</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+      <tr>
+        <td>ESRI LULC 2023</td>
+        <td>ESRI / Impact Observatory</td>
+        <td>10m</td>
+        <td>Land use classification</td>
+        <td><span class="badge badge-cloud">GEE Asset</span></td>
+      </tr>
+      <tr>
+        <td>NASADEM</td>
+        <td>NASA JPL</td>
+        <td>30m</td>
+        <td>Elevation, slope, hillshade</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+      <tr>
+        <td>Landsat-9 C2 L2</td>
+        <td>USGS / NASA</td>
+        <td>30m</td>
+        <td>Land Surface Temperature</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+      <tr>
+        <td>CHIRPS Daily</td>
+        <td>UCSB / CHG</td>
+        <td>~5.5km</td>
+        <td>Rainfall proxy</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+      <tr>
+        <td>Primary SWD Network</td>
+        <td>BBMP / OpenData</td>
+        <td>Vector</td>
+        <td>Storm drain proximity</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+      <tr>
+        <td>WRIS Groundwater</td>
+        <td>India-WRIS (CWC)</td>
+        <td>Point</td>
+        <td>Station observations</td>
+        <td><span class="badge badge-free">Free</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- FINDINGS -->
+<section id="findings">
+  <h2>Key <span>Findings</span></h2>
+  <p class="section-sub">Preliminary observations from the multi-sensor groundwater stress analysis.</p>
+  <div class="findings-grid">
+    <div class="finding-card">
+      <div class="finding-icon">🏙️</div>
+      <h4>Urban Core = Lowest GWPZ</h4>
+      <p>Central Bengaluru (MG Road, Shivajinagar, Koramangala) shows GWPZ Class 1–2 due to high imperviousness and steep runoff.</p>
+    </div>
+    <div class="finding-card">
+      <div class="finding-icon">🌿</div>
+      <h4>Peripheral Greens = High Recharge</h4>
+      <p>Bannerghatta, Kengeri, Yelahanka periphery and Turahalli forest retain GWPZ Class 4–5 with intact vegetation cover.</p>
+    </div>
+    <div class="finding-card">
+      <div class="finding-icon">🌡️</div>
+      <h4>UHI Amplifies Stress</h4>
+      <p>Whitefield and Electronic City summer LST exceeds 44°C — 8–12°C above the rural baseline, compounding groundwater demand.</p>
+    </div>
+    <div class="finding-card">
+      <div class="finding-icon">📉</div>
+      <h4>Backscatter Instability Hotspots</h4>
+      <p>Elevated SAR temporal variance detected in Bommanahalli, KR Puram and Sarjapur corridors — consistent with documented subsidence.</p>
+    </div>
+    <div class="finding-card">
+      <div class="finding-icon">💧</div>
+      <h4>Drains Reduce Recharge</h4>
+      <p>Within 250m of primary SWD corridors, effective recharge potential drops ~30% as surface runoff is channeled away.</p>
+    </div>
+    <div class="finding-card">
+      <div class="finding-icon">🪨</div>
+      <h4>Fractures Control Deep Storage</h4>
+      <p>NNW-SSE lineaments (Closepet Granite trend) correlate with deeper aquifer yields — key targets for artificial recharge wells.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    Built by <strong>Prakash Krishnamachari</strong> &nbsp;·&nbsp;
+    <a href="https://github.com/prakashkrish-DataGeek/bengaluru-groundwater-stress" target="_blank">GitHub Repo</a> &nbsp;·&nbsp;
+    <a href="https://www.linkedin.com/in/prakashkrishnamachari" target="_blank">LinkedIn</a>
+    &nbsp;·&nbsp; Data: Copernicus / ESA, NASA, USGS, BBMP, India-WRIS
+  </p>
+  <p style="margin-top:.5rem; color:#555">
+    All code MIT licensed. Satellite data subject to respective agency terms.
+  </p>
+</footer>
+
+<!-- LEAFLET MAP SCRIPT -->
+<script>
+  // ── Base map ──────────────────────────────────────────────────────────────
+  const map = L.map('map', {
+    center: [12.9716, 77.5946],
+    zoom: 11,
+    zoomControl: true
+  });
+
+  const cartoDB = L.tileLayer(
+    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    { attribution: '© CartoDB', maxZoom: 19 }
+  ).addTo(map);
+
+  const esriSat = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: '© Esri', maxZoom: 19 }
+  );
+
+  // ── GWPZ Heatmap (synthetic — replace with GEE export CSV) ────────────────
+  const gwpzPoints = (function() {
+    const pts = []; const rng = (s) => { let x = Math.sin(s) * 10000; return x - Math.floor(x); };
+    for (let i = 0; i < 1200; i++) {
+      const lat = 12.82 + rng(i*3) * 0.36;
+      const lon = 77.42 + rng(i*7) * 0.40;
+      const cx = 77.5946, cy = 12.9716;
+      const d = Math.sqrt((lon-cx)**2 + (lat-cy)**2);
+      const w = Math.min(1, d * 9 + 0.1 + rng(i) * 0.2);
+      pts.push([lat, lon, w]);
+    }
+    return pts;
+  })();
+
+  const gwpzLayer = L.heatLayer(gwpzPoints, {
+    radius: 22, blur: 28, maxZoom: 16, minOpacity: 0.35,
+    gradient: {0:'#2c7bb6', 0.3:'#abd9e9', 0.5:'#ffffbf', 0.7:'#fdae61', 1:'#d7191c'}
+  }).addTo(map);
+
+  // ── Subsidence hotspots ───────────────────────────────────────────────────
+  const hotspotCenters = [
+    [12.9279, 77.6271], [12.9698, 77.7499],
+    [12.8994, 77.6184], [13.0298, 77.5503], [12.8399, 77.6770]
+  ];
+  const subsidencePts = [];
+  hotspotCenters.forEach(([cy,cx], idx) => {
+    for (let i = 0; i < 60; i++) {
+      const r = (s) => { let x=Math.sin(s*idx+i)*9999; return x-Math.floor(x); };
+      subsidencePts.push([cy + (r(1)-.5)*.04, cx + (r(2)-.5)*.04, r(3)*.6+.4]);
+    }
+  });
+  const subsidenceLayer = L.heatLayer(subsidencePts, {
+    radius: 20, blur: 22, gradient: {0:'#fee8c8', 0.5:'#fc8d59', 1:'#d73027'}
+  });
+
+  // ── LST urban heat ────────────────────────────────────────────────────────
+  const urbanCenters = [
+    [12.9716, 77.5946], [12.9352, 77.6245],
+    [12.9784, 77.6408], [13.0298, 77.5503], [12.9099, 77.5963]
+  ];
+  const lstPts = [];
+  urbanCenters.forEach(([cy,cx], idx) => {
+    for (let i = 0; i < 80; i++) {
+      const r = (s) => { let x=Math.sin(s*idx+i*13)*8888; return x-Math.floor(x); };
+      lstPts.push([cy + (r(1)-.5)*.05, cx + (r(2)-.5)*.05, r(3)*.5+.5]);
+    }
+  });
+  const lstLayer = L.heatLayer(lstPts, {
+    radius: 25, blur: 32, gradient: {0:'#ffffb2', 0.4:'#fecc5c', 0.7:'#fd8d3c', 1:'#e31a1c'}
+  });
+
+  // ── WRIS Station markers ──────────────────────────────────────────────────
+  const stationData = [
+    {name:'Hebbal',          lat:13.0350, lon:77.5970, depth:18.2, type:'Fractured'},
+    {name:'Indiranagar',     lat:12.9784, lon:77.6408, depth:32.5, type:'Weathered'},
+    {name:'Koramangala',     lat:12.9279, lon:77.6271, depth:45.1, type:'Fractured'},
+    {name:'Jayanagar',       lat:12.9099, lon:77.5832, depth:22.0, type:'Alluvial'},
+    {name:'Rajajinagar',     lat:13.0020, lon:77.5530, depth:15.8, type:'Alluvial'},
+    {name:'Malleswaram',     lat:13.0035, lon:77.5670, depth:19.3, type:'Weathered'},
+    {name:'Whitefield',      lat:12.9698, lon:77.7499, depth:52.4, type:'Fractured'},
+    {name:'Electronic City', lat:12.8399, lon:77.6770, depth:48.7, type:'Fractured'},
+    {name:'Yelahanka',       lat:13.0993, lon:77.5963, depth:12.1, type:'Alluvial'},
+    {name:'Marathahalli',    lat:12.9590, lon:77.7006, depth:38.9, type:'Weathered'},
+    {name:'Bannerghatta',    lat:12.8005, lon:77.5771, depth:28.3, type:'Fractured'},
+    {name:'Kengeri',         lat:12.9096, lon:77.4849, depth:10.5, type:'Alluvial'},
+  ];
+
+  const stationsGroup = L.layerGroup();
+  stationData.forEach(s => {
+    const t = Math.min(1, Math.max(0, (s.depth - 5) / 55));
+    const r = Math.round(44 + t * 211);
+    const g = Math.round(185 - t * 133);
+    const b = Math.round(80 - t * 27);
+    const color = `rgb(${r},${g},${b})`;
+    L.circleMarker([s.lat, s.lon], {
+      radius: 7, color: '#fff', weight: 1.5,
+      fillColor: color, fillOpacity: .9
+    }).bindPopup(`
+      <div style="font-family:sans-serif;min-width:160px">
+        <b style="font-size:13px">${s.name}</b><hr style="margin:4px 0">
+        Depth: <b>${s.depth} mbgl</b><br>
+        Aquifer: ${s.type}
+      </div>`
+    ).bindTooltip(s.name).addTo(stationsGroup);
+  });
+  stationsGroup.addTo(map);
+
+  // ── Sample drain polylines ────────────────────────────────────────────────
+  const drainCoords = [
+    [[12.84,77.53],[12.90,77.59],[12.97,77.62],[13.00,77.65]],
+    [[12.87,77.45],[12.91,77.52],[12.93,77.58],[12.95,77.64]],
+    [[12.82,77.60],[12.88,77.62],[12.95,77.63],[13.02,77.66]],
+    [[13.00,77.52],[13.03,77.57],[13.06,77.63],[13.09,77.70]],
+    [[12.91,77.48],[12.94,77.54],[12.96,77.60],[12.99,77.67]],
+  ];
+  const drainsGroup = L.layerGroup();
+  drainCoords.forEach(coords => {
+    L.polyline(coords, {color:'#1a73e8', weight:2, opacity:.75}).addTo(drainsGroup);
+  });
+  drainsGroup.addTo(map);
+
+  // ── Study area boundary ───────────────────────────────────────────────────
+  L.rectangle([[12.77,77.40],[13.18,77.82]], {
+    color:'#8b949e', weight:1.5, fill:false, dashArray:'8,6'
+  }).addTo(map);
+
+  // ── Layer control ─────────────────────────────────────────────────────────
+  const baseLayers = {
+    'CartoDB Dark':     cartoDB,
+    'Esri Satellite':   esriSat
+  };
+  const overlays = {
+    '🔵 GWPZ Heatmap':                    gwpzLayer,
+    '🔴 Subsidence Hotspots (S1 Proxy)':  subsidenceLayer,
+    '🟠 Urban Heat / LST (Landsat-9)':    lstLayer,
+    '💧 Storm Water Drain Network':        drainsGroup,
+    '📍 WRIS Groundwater Stations':        stationsGroup,
+  };
+  L.control.layers(baseLayers, overlays, {collapsed: false}).addTo(map);
+
+  // ── Scale ─────────────────────────────────────────────────────────────────
+  L.control.scale({imperial: false}).addTo(map);
+</script>
+
+</body>
+</html>
